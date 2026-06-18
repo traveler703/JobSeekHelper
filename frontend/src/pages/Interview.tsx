@@ -431,6 +431,19 @@ export default function Interview() {
     setDetailModalErr(null);
   }
 
+  async function deleteRecord(id: number) {
+    setErr(null);
+    try {
+      await api.delete(`/interview/sessions/${id}`);
+      if (detail?.id === id) {
+        closeRecordModal();
+      }
+      await refreshSessions();
+    } catch {
+      setErr("删除面试记录失败");
+    }
+  }
+
   const portalUi =
     fsOpen &&
     createPortal(
@@ -578,7 +591,7 @@ export default function Interview() {
           <p className="muted">按时间倒序，最新的记录在最上面。</p>
           <ul className="session-list">
             {sessions.map((s) => (
-              <li key={s.id}>
+              <li key={s.id} className="session-list-item">
                 <button
                   type="button"
                   className="linklike"
@@ -586,6 +599,13 @@ export default function Interview() {
                 >
                   #{s.id} · {sessionSummaryLine(s)} · {formatLocalDateTime(s.started_at)}
                   {s.status === "ended" ? "（已结束）" : ""}
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => void deleteRecord(s.id)}
+                >
+                  删除
                 </button>
               </li>
             ))}

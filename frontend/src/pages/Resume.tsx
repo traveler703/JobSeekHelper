@@ -123,6 +123,27 @@ const defaultForm = (): ResumeForm => ({
   skills: [emptySkill()],
 });
 
+function asRecord(v: unknown): Record<string, unknown> {
+  return v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+}
+
+function asText(v: unknown): string {
+  if (v == null) return "";
+  return String(v);
+}
+
+function hasContent(v: unknown): boolean {
+  if (Array.isArray(v)) return v.some(hasContent);
+  if (v && typeof v === "object") return Object.values(v).some(hasContent);
+  const text = String(v ?? "").trim();
+  return text.length > 0 && text !== "本科" && text !== "日常沟通";
+}
+
+function ensureRows<T>(rows: T[], one: () => T): T[] {
+  const filtered = rows.filter(hasContent);
+  return filtered.length > 0 ? filtered : [one()];
+}
+
 function ymOrder(a: string, b: string): number {
   const na = a.replace(/\D/g, "").padStart(6, "0");
   const nb = b.replace(/\D/g, "").padStart(6, "0");
@@ -136,104 +157,108 @@ function validRange(start: string, end: string): boolean {
 
 function normalizeFromProfile(profile: Record<string, unknown>): ResumeForm {
   const base = defaultForm();
-  const rf = profile.resume_form;
-  if (rf && typeof rf === "object" && rf !== null) {
-    const r = rf as Record<string, unknown>;
-    const p = r.personal;
-    if (p && typeof p === "object") {
-      const x = p as Record<string, string>;
-      base.personal = {
-        full_name: x.full_name ?? x.name ?? "",
-        gender: x.gender ?? "",
-        birth_ym: x.birth_ym ?? "",
-        phone: x.phone ?? "",
-        email: x.email ?? "",
-      };
-    }
-    const pickArr = <T,>(v: unknown, map: (o: Record<string, unknown>) => T, one: () => T): T[] => {
-      if (!Array.isArray(v) || v.length === 0) return [one()];
-      return v.map((item) =>
-        item && typeof item === "object" ? map(item as Record<string, unknown>) : one()
-      );
+  const rf = asRecord(profile.resume_form);
+  const r = Object.keys(rf).length > 0 ? rf : profile;
+  const p = asRecord(r.personal ?? profile.personal ?? profile.basic_info);
+  if (Object.keys(p).length > 0) {
+    base.personal = {
+      full_name: asText(p.full_name ?? p.name),
+      gender: asText(p.gender),
+      birth_ym: asText(p.birth_ym),
+      phone: asText(p.phone ?? p.tel),
+      email: asText(p.email),
     };
-    base.education = pickArr(
+  }
+
+  const pickArr = <T,>(v: unknown, map: (o: Record<string, unknown>) => T, one: () => T): T[] => {
+    if (!Array.isArray(v) || v.length === 0) return [one()];
+    return v.map((item) =>
+      item && typeof item === "object" ? map(item as Record<string, unknown>) : one()
+    );
+  };
+  base.education = ensureRows(
+    pickArr(
       r.education,
       (o) => ({
-        school: String(o.school ?? ""),
-        major: String(o.major ?? o.research ?? ""),
+        school: asText(o.school),
+        major: asText(o.major ?? o.research),
         level: EDU_LEVELS.includes(o.level as (typeof EDU_LEVELS)[number])
           ? (o.level as string)
           : "本科",
-        start_ym: String(o.start_ym ?? ""),
-        end_ym: String(o.end_ym ?? ""),
+        start_ym: asText(o.start_ym),
+        end_ym: asText(o.end_ym),
       }),
       emptyEducation
-    );
-    base.projects = pickArr(
+    ),
+    emptyEducation
+  );
+  base.projects = ensureRows(
+    pickArr(
       r.projects,
       (o) => ({
-        name: String(o.name ?? ""),
-        start_ym: String(o.start_ym ?? ""),
-        end_ym: String(o.end_ym ?? ""),
-        role: String(o.role ?? ""),
-        summary: String(o.summary ?? o.intro ?? ""),
-        work: String(o.work ?? ""),
+        name: asText(o.name),
+        start_ym: asText(o.start_ym),
+        end_ym: asText(o.end_ym),
+        role: asText(o.role),
+        summary: asText(o.summary ?? o.intro),
+        work: asText(o.work),
       }),
       emptyProject
-    );
-    base.internships = pickArr(
+    ),
+    emptyProject
+  );
+  base.internships = ensureRows(
+    pickArr(
       r.internships,
       (o) => ({
-        company: String(o.company ?? ""),
-        position: String(o.position ?? ""),
-        start_ym: String(o.start_ym ?? ""),
-        end_ym: String(o.end_ym ?? ""),
-        work: String(o.work ?? ""),
+        company: asText(o.company),
+        position: asText(o.position),
+        start_ym: asText(o.start_ym),
+        end_ym: asText(o.end_ym),
+        work: asText(o.work),
       }),
       emptyInternship
-    );
-    base.awards = pickArr(
+    ),
+    emptyInternship
+  );
+  base.awards = ensureRows(
+    pickArr(
       r.awards,
       (o) => ({
-        name: String(o.name ?? ""),
-        level: String(o.level ?? ""),
-        award_ym: String(o.award_ym ?? ""),
+        name: asText(o.name),
+        level: asText(o.level),
+        award_ym: asText(o.award_ym),
       }),
       emptyAward
-    );
-    base.languages = pickArr(
+    ),
+    emptyAward
+  );
+  base.languages = ensureRows(
+    pickArr(
       r.languages,
       (o) => ({
-        lang: String(o.lang ?? o.language ?? ""),
+        lang: asText(o.lang ?? o.language),
         proficiency: LANG_LEVELS.includes(o.proficiency as (typeof LANG_LEVELS)[number])
           ? (o.proficiency as string)
           : "日常沟通",
       }),
       emptyLanguage
-    );
-    base.skills = pickArr(
+    ),
+    emptyLanguage
+  );
+  base.skills = ensureRows(
+    pickArr(
       r.skills,
       (o) => {
         if (typeof o.name === "string" || typeof o.level === "string") {
-          return { name: String(o.name ?? ""), level: String(o.level ?? "") };
+          return { name: asText(o.name), level: asText(o.level) };
         }
-        return { name: String(o.skill ?? o), level: "" };
+        return { name: asText(o.skill ?? o), level: "" };
       },
       emptySkill
-    );
-    return base;
-  }
-
-  const bi = profile.basic_info as Record<string, string> | undefined;
-  if (bi) {
-    base.personal = {
-      full_name: bi.name ?? bi.full_name ?? "",
-      gender: bi.gender ?? "",
-      birth_ym: bi.birth_ym ?? "",
-      phone: bi.phone ?? bi.tel ?? "",
-      email: bi.email ?? "",
-    };
-  }
+    ),
+    emptySkill
+  );
   return base;
 }
 

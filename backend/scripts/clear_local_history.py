@@ -17,7 +17,7 @@ from sqlalchemy import delete, select
 
 from app.config import settings
 from app.database import SessionLocal, init_db
-from app.models import InterviewSession, KnowledgeDocument, ResumeProfile
+from app.models import InterviewSession, KnowledgeDocument, KnowledgePoint, ResumeProfile
 
 
 def _rm_contents(path: Path) -> None:
@@ -37,6 +37,7 @@ def main() -> None:
     init_db()
     with SessionLocal() as db:
         db.execute(delete(InterviewSession))
+        db.execute(delete(KnowledgePoint))
         db.execute(delete(KnowledgeDocument))
         for row in db.scalars(select(ResumeProfile)):
             row.profile_json = "{}"

@@ -11,7 +11,7 @@ from app.deps import get_current_user
 from app.models import User
 from app.services import llm
 from app.services.parser import extract_text_from_upload
-from app.services.profile_merge import merge_profile
+from app.services.profile_merge import merge_profile, normalize_profile_structure
 from app.routers.profile import _get_profile_row
 
 router = APIRouter(prefix="/resume", tags=["resume"])
@@ -52,7 +52,8 @@ async def upload_resume(
         existing = json.loads(row.profile_json or "{}")
     except json.JSONDecodeError:
         existing = {}
-    merged = merge_profile(existing, parsed if isinstance(parsed, dict) else {})
+    normalized = normalize_profile_structure(parsed if isinstance(parsed, dict) else {})
+    merged = merge_profile(existing, normalized)
     row.profile_json = json.dumps(merged, ensure_ascii=False)
     db.commit()
 

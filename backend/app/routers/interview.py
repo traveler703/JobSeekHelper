@@ -85,6 +85,20 @@ def get_evaluation(
         raise HTTPException(500, "评价数据损坏")
 
 
+@router.delete("/sessions/{session_id}")
+def delete_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+):
+    row = db.get(InterviewSession, session_id)
+    if row is None or row.user_id != current.id:
+        raise HTTPException(404, "会话不存在")
+    db.delete(row)
+    db.commit()
+    return {"ok": True}
+
+
 @router.post("/tts")
 async def tts(
     payload: dict,

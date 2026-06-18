@@ -20,6 +20,9 @@ class User(Base):
     knowledge_docs: Mapped[list["KnowledgeDocument"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    knowledge_points: Mapped[list["KnowledgePoint"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
     interviews: Mapped[list["InterviewSession"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
@@ -48,6 +51,27 @@ class KnowledgeDocument(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     user: Mapped["User"] = relationship(back_populates="knowledge_docs")
+    points: Mapped[list["KnowledgePoint"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan"
+    )
+
+
+class KnowledgePoint(Base):
+    __tablename__ = "knowledge_points"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    document_id: Mapped[int | None] = mapped_column(
+        ForeignKey("knowledge_documents.id"), nullable=True, index=True
+    )
+    topic: Mapped[str] = mapped_column(String(128), default="常见考点")
+    question: Mapped[str] = mapped_column(String(512))
+    answer: Mapped[str] = mapped_column(Text)
+    source_filename: Mapped[str] = mapped_column(String(512), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    user: Mapped["User"] = relationship(back_populates="knowledge_points")
+    document: Mapped["KnowledgeDocument | None"] = relationship(back_populates="points")
 
 
 class InterviewSession(Base):

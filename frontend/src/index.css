@@ -487,6 +487,17 @@ label {
   margin-bottom: 0.35rem;
 }
 
+.session-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.session-list-item .linklike {
+  flex: 1;
+}
+
 .linklike {
   background: none;
   border: none;

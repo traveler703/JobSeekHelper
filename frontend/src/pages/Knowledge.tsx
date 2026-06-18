@@ -4,7 +4,10 @@ import LoadingOverlay from "../components/LoadingOverlay";
 import { formatLocalDateTime } from "../utils/datetime";
 
 type Doc = { id: number; filename: string; created_at: string };
-type CommonPoint = { topic: string; question: string; answer: string };
+type CommonPoint = { topic: string; question: string; answer: string; source_filename?: string };
+type UploadResult = {
+  point_errors?: string[];
+};
 
 export default function Knowledge() {
   const [list, setList] = useState<Doc[]>([]);
@@ -27,7 +30,7 @@ export default function Knowledge() {
       setPoints(data.points ?? []);
     } catch (error: unknown) {
       const ax = error as { response?: { data?: { detail?: string } } };
-      setPointsErr(ax?.response?.data?.detail ?? "常见考点生成失败");
+      setPointsErr(ax?.response?.data?.detail ?? "常见考点加载失败");
       setPoints([]);
     }
   }
@@ -50,12 +53,15 @@ export default function Knowledge() {
       fd.append("files", f);
     }
     setBusy(true);
-    setBusyTitle("正在上传并向量化，请稍候…");
+    setBusyTitle("正在上传、向量化并整理考点，请稍候…");
     try {
-      await api.post("/knowledge/upload", fd);
+      const { data } = await api.post<UploadResult>("/knowledge/upload", fd);
       setFiles([]);
       await refresh();
       await refreshPoints();
+      if (data.point_errors && data.point_errors.length > 0) {
+        setErr(`文档已上传，但部分考点生成失败：${data.point_errors.join("；")}`);
+      }
     } catch (error: unknown) {
       const ax = error as { response?: { data?: { detail?: string } } };
       setErr(ax?.response?.data?.detail ?? "上传失败");
@@ -108,7 +114,7 @@ export default function Knowledge() {
                 {d.filename}{" "}
                 <span className="muted">({formatLocalDateTime(d.created_at)})</span>
               </span>
-              <button type="button" className="danger" onClick={() => void remove(d.id)}>
+              <button type="button" className="secondary" onClick={() => void remove(d.id)}>
                 删除
               </button>
             </li>
@@ -121,11 +127,11 @@ export default function Knowledge() {
           <div>
             <h2 style={{ margin: "0 0 0.25rem" }}>常见考点</h2>
             <p className="muted" style={{ margin: 0 }}>
-              基于已上传资料自动归纳，点击卡片查看参考答案。
+              基于已上传资料预先整理，每次随机展示一批；点击卡片查看参考答案。
             </p>
           </div>
           <button type="button" className="secondary" onClick={() => void refreshPoints()}>
-            重新整理
+            换一换
           </button>
         </div>
         {points.length > 0 ? (
