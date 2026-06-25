@@ -26,6 +26,19 @@ type CharEvent = {
   source: "speech" | "typing";
 };
 
+let activeAudio: HTMLAudioElement | null = null;
+let speechSerial = 0;
+
+function stopSpeechNow() {
+  speechSerial += 1;
+  window.speechSynthesis.cancel();
+  if (activeAudio) {
+    activeAudio.pause();
+    activeAudio.src = "";
+    activeAudio = null;
+  }
+}
+
 function pickZhVoice(): SpeechSynthesisVoice | null {
   const voices = window.speechSynthesis.getVoices();
   if (!voices.length) return null;
@@ -46,6 +59,7 @@ function pickZhVoice(): SpeechSynthesisVoice | null {
 
 /** 按句切分并排队播报，减轻「机器一口气读完」的生硬感 */
 function speakNatural(text: string) {
+  const serial = ++speechSerial;
   window.speechSynthesis.cancel();
   const raw = text.replace(/\r/g, "").trim();
   if (!raw) return;
@@ -56,6 +70,7 @@ function speakNatural(text: string) {
   const chunks = parts.length ? parts : [raw];
   let i = 0;
   const run = () => {
+    if (serial !== speechSerial) return;
     if (i >= chunks.length) return;
     const u = new SpeechSynthesisUtterance(chunks[i++]);
     u.lang = "zh-CN";
@@ -73,26 +88,37 @@ function speakNatural(text: string) {
 }
 
 async function speakWithNeuralTts(text: string, fallback: () => void) {
+  const serial = ++speechSerial;
   const normalized = text.trim();
   if (!normalized) return;
   try {
     window.speechSynthesis.cancel();
+    if (activeAudio) {
+      activeAudio.pause();
+      activeAudio = null;
+    }
     const res = await api.post(
       "/interview/tts",
       { text: normalized },
       { responseType: "blob" }
     );
+    if (serial !== speechSerial) return;
     const audioUrl = URL.createObjectURL(res.data);
     const audio = new Audio(audioUrl);
+    activeAudio = audio;
     audio.playbackRate = 0.96;
-    audio.onended = () => URL.revokeObjectURL(audioUrl);
+    audio.onended = () => {
+      URL.revokeObjectURL(audioUrl);
+      if (activeAudio === audio) activeAudio = null;
+    };
     audio.onerror = () => {
       URL.revokeObjectURL(audioUrl);
-      fallback();
+      if (activeAudio === audio) activeAudio = null;
+      if (serial === speechSerial) fallback();
     };
     await audio.play();
   } catch {
-    fallback();
+    if (serial === speechSerial) fallback();
   }
 }
 
@@ -142,6 +168,7 @@ export default function Interview() {
   const [listening, setListening] = useState(false);
   const [sessionActive, setSessionActive] = useState(false);
   const [fsOpen, setFsOpen] = useState(false);
+  const [endingInBackground, setEndingInBackground] = useState(false);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [recordModalOpen, setRecordModalOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -156,6 +183,8 @@ export default function Interview() {
   const pendingInterviewRef = useRef({ company: "", position: "" });
   const answerStartedAtRef = useRef(0);
   const charEventsRef = useRef<CharEvent[]>([]);
+  const keepWsAfterFsCloseRef = useRef(false);
+  const endingRequestedRef = useRef(false);
 
   const token = localStorage.getItem("token") || "";
 
@@ -189,6 +218,7 @@ export default function Interview() {
   useEffect(() => {
     return () => {
       closeWs();
+      stopSpeechNow();
       if (recRef.current) {
         try {
           recRef.current.stop();
@@ -250,6 +280,10 @@ export default function Interview() {
           message?: string;
         };
         if (data.type === "question" && data.text) {
+          if (endingRequestedRef.current) {
+            stopSpeechNow();
+            return;
+          }
           setQuestion(data.text);
           void speakWithNeuralTts(data.text, () => speakNatural(data.text ?? ""));
           setDraft("");
@@ -257,11 +291,13 @@ export default function Interview() {
           charEventsRef.current = [];
           setSessionActive(true);
         } else if (data.type === "ended") {
+          stopSpeechNow();
           setQuestion("");
           setEvalJson(data.evaluation ?? null);
           setEndedReason(data.reason ?? null);
           setSessionActive(false);
-          void speakWithNeuralTts("面试已结束，请查看评价。", () => speakNatural("面试已结束，请查看评价。"));
+          setEndingInBackground(false);
+          endingRequestedRef.current = false;
           closeWs();
           exitFs();
           refreshSessions();
@@ -274,7 +310,8 @@ export default function Interview() {
     };
     ws.onerror = () => {
       setErr("连接异常");
-      closeWs();
+    closeWs();
+    stopSpeechNow();
       exitFs();
     };
     return ws;
@@ -307,6 +344,7 @@ export default function Interview() {
       setEndedReason(null);
       setQuestion("");
       cheatSent.current = false;
+      endingRequestedRef.current = false;
       const { company, position } = pendingInterviewRef.current;
       const ws = connectWs();
       ws.onopen = () => {
@@ -324,7 +362,11 @@ export default function Interview() {
     void boot();
     return () => {
       cancelled = true;
-      closeWs();
+      if (keepWsAfterFsCloseRef.current) {
+        keepWsAfterFsCloseRef.current = false;
+      } else {
+        closeWs();
+      }
     };
   }, [fsOpen, closeWs, connectWs]);
 
@@ -357,13 +399,30 @@ export default function Interview() {
 
   function endByUser() {
     setErr(null);
+    stopSpeechNow();
+    if (recRef.current) {
+      try {
+        recRef.current.stop();
+      } catch {
+        /* ignore */
+      }
+    }
     const w = wsRef.current;
     if (!w || w.readyState !== WebSocket.OPEN) {
       setSessionActive(false);
       exitFs();
       return;
     }
+    setSessionActive(false);
+    setListening(false);
+    setQuestion("");
+    setDraft("");
+    setEndingInBackground(true);
+    keepWsAfterFsCloseRef.current = true;
+    endingRequestedRef.current = true;
     w.send(JSON.stringify({ type: "end_interview" }));
+    exitFs();
+    refreshSessions();
   }
 
   function toggleListen() {
@@ -583,6 +642,11 @@ export default function Interview() {
           )}
           {fsOpen && (
             <p className="muted">全屏面试进行中… 结束或退出全屏后将回到此处。</p>
+          )}
+          {endingInBackground && (
+            <p className="muted" style={{ marginTop: 10 }}>
+              已退出面试界面，系统正在生成评价；完成后右侧记录会自动刷新。
+            </p>
           )}
         </div>
 
