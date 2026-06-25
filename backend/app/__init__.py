@@ -1,1 +1,0 @@
-# JobSeekHelper backend
